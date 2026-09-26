@@ -206,12 +206,17 @@ def index():
     return render_template("index.html", max_cell_delta_mv=MAX_CELL_DELTA_MV, history_hours=HISTORY_HOURS)
 
 
+REPORT_INTERVAL_SAMPLE_SIZE = 10
+
+
 def avg_report_interval(raw_rows):
-    """Average seconds between readings, from the raw (un-downsampled) history."""
-    if len(raw_rows) < 2:
+    """Average seconds between readings, over the last REPORT_INTERVAL_SAMPLE_SIZE
+    readings so a recently changed reporting rate is reflected quickly."""
+    recent = raw_rows[-REPORT_INTERVAL_SAMPLE_SIZE:]
+    if len(recent) < 2:
         return None
-    span = (raw_rows[-1][0] - raw_rows[0][0]).total_seconds()
-    return span / (len(raw_rows) - 1) if span > 0 else None
+    span = (recent[-1][0] - recent[0][0]).total_seconds()
+    return span / (len(recent) - 1) if span > 0 else None
 
 
 @app.route("/api/snapshot")

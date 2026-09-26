@@ -38,6 +38,30 @@
     }
     h1 { font-size: 1.4rem; margin: 0 0 4px 0; }
     .subtitle { color: var(--muted); font-size: 0.85rem; margin-bottom: 20px; }
+    .header-row { position: relative; display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; }
+    .header-row .subtitle { margin-bottom: 4px; }
+    .report-rates {
+        position: relative;
+        flex: 0 0 auto;
+        background: var(--card-bg);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 6px 10px;
+        font-size: 0.72rem;
+        color: var(--muted);
+        white-space: nowrap;
+        cursor: pointer;
+    }
+    .report-rates.expanded {
+        position: absolute;
+        right: 0;
+        top: 0;
+        z-index: 15;
+        box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
+    }
+    .report-rates .rate-title { font-weight: 600; margin-bottom: 2px; color: var(--text); }
+    .report-rates .rate-row { display: flex; justify-content: space-between; gap: 10px; }
+    .report-rates .rate-hint { font-size: 0.65rem; opacity: 0.75; }
     .tabs {
         display: flex;
         gap: 4px;
@@ -326,10 +350,16 @@
 </style>
 </head>
 <body>
-<h1>Pylontech Battery Dashboard</h1>
-<div class="subtitle" id="status">Waiting for data&hellip;</div>
-<div class="subtitle" id="reportRates"></div>
-<button class="export-btn" id="clearCacheBtn" style="margin-bottom: 16px;">Clear cache</button>
+<div class="header-row">
+    <div>
+        <h1>Pylontech Battery Dashboard</h1>
+        <div class="subtitle" id="status">Waiting for data&hellip;</div>
+    </div>
+    <div style="display: flex; align-items: flex-start; gap: 8px;">
+        <button class="export-btn" id="clearCacheBtn" style="flex: 0 0 auto;">Clear cache</button>
+        <div class="report-rates" id="reportRates" hidden></div>
+    </div>
+</div>
 
 <div class="tabs">
     <button class="tab-btn active" data-tab="overview">Overview</button>
@@ -681,7 +711,34 @@ const exportCellHistoryChart = makeChart(document.getElementById("exportCellHist
 exportCellHistoryChart.options.plugins.legend.labels = { boxWidth: 10, font: { size: 10 } };
 
 let currentBatteries = [];
+let latestReportRates = [];
+let reportRatesExpanded = false;
 let openCellKey = null;
+
+function renderReportRates() {
+    const el = document.getElementById("reportRates");
+    const batteries = latestReportRates;
+    el.hidden = !batteries.length;
+    el.classList.toggle("expanded", reportRatesExpanded);
+    if (!batteries.length) return;
+
+    if (!reportRatesExpanded) {
+        const intervals = batteries.map(b => b.avgReportIntervalSeconds).filter(s => s != null);
+        const avg = intervals.length ? intervals.reduce((a, b) => a + b, 0) / intervals.length : null;
+        el.innerHTML = `<div class="rate-row"><span>Report interval</span><span>${avg != null ? avg.toFixed(1) + "s avg" : "n/a"}</span></div>`;
+    } else {
+        el.innerHTML = `<div class="rate-title">Report interval (last 10)</div>` +
+            batteries.map(b => {
+                const s = b.avgReportIntervalSeconds;
+                return `<div class="rate-row"><span>${b.stack} #${b.addr}</span><span>${s != null ? s.toFixed(1) + "s" : "n/a"}</span></div>`;
+            }).join("");
+    }
+}
+
+document.getElementById("reportRates").addEventListener("click", () => {
+    reportRatesExpanded = !reportRatesExpanded;
+    renderReportRates();
+});
 const stackSections = new Map(); // stack -> { cardsEl, countEl, charts: {voltage, soc, current, temp} }
 
 function batteryKey(bat) { return `${bat.stack}|${bat.addr}`; }
@@ -1302,12 +1359,8 @@ async function refresh() {
         document.getElementById("status").textContent =
             `${data.batteries.length} battery module(s) reporting · updated ${new Date(data.generatedAt).toLocaleTimeString()}`;
 
-        document.getElementById("reportRates").textContent = data.batteries.length
-            ? "Avg reporting interval — " + data.batteries.map(b => {
-                const s = b.avgReportIntervalSeconds;
-                return `${b.stack} #${b.addr}: ${s != null ? s.toFixed(1) + "s" : "n/a"}`;
-            }).join(" · ")
-            : "";
+        latestReportRates = data.batteries;
+        renderReportRates();
 
         currentBatteries = data.batteries;
         renderOverview(data.batteries, data.systemHistory, data.expectedModuleCount);

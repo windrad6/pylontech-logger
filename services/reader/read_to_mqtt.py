@@ -32,7 +32,7 @@ tmpDir = tempfile.mkdtemp(prefix="pylontech-")
 
 batList = {}
 for section in config.sections():
-    if section == "mqtt":
+    if section in ("mqtt", "ui"):
         continue
     batList[section] = {
         "addr": [int(a.strip()) for a in config[section]["addr"].split(",")],
