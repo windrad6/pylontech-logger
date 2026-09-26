@@ -1,0 +1,698 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Pylontech Battery Dashboard</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<style>
+    :root {
+        color-scheme: light dark;
+        --bg: #f5f6f8;
+        --card-bg: #ffffff;
+        --text: #1b1f24;
+        --muted: #6b7280;
+        --border: #e2e5ea;
+        --good: #1a9e5c;
+        --warn: #c98a10;
+        --bad: #d94b4b;
+    }
+    @media (prefers-color-scheme: dark) {
+        :root {
+            --bg: #14161a;
+            --card-bg: #1d2026;
+            --text: #eceef1;
+            --muted: #9aa1ac;
+            --border: #2b2f36;
+        }
+    }
+    * { box-sizing: border-box; }
+    [hidden] { display: none !important; }
+    body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        padding: 24px;
+    }
+    h1 { font-size: 1.4rem; margin: 0 0 4px 0; }
+    .subtitle { color: var(--muted); font-size: 0.85rem; margin-bottom: 20px; }
+    .tabs {
+        display: flex;
+        gap: 4px;
+        border-bottom: 1px solid var(--border);
+        margin-bottom: 24px;
+    }
+    .tab-btn {
+        background: none;
+        border: none;
+        border-bottom: 2px solid transparent;
+        color: var(--muted);
+        font-size: 0.9rem;
+        font-weight: 600;
+        padding: 10px 14px;
+        cursor: pointer;
+    }
+    .tab-btn:hover { color: var(--text); }
+    .tab-btn.active { color: var(--text); border-bottom-color: #4c8bf5; }
+    .overview-stats {
+        display: flex;
+        gap: 14px;
+        flex-wrap: wrap;
+        margin-bottom: 28px;
+    }
+    .stat-tile {
+        background: var(--card-bg);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 16px 20px;
+        min-width: 160px;
+    }
+    .stat-tile-label { display: block; color: var(--muted); font-size: 0.8rem; margin-bottom: 6px; }
+    .stat-tile-value { font-size: 1.6rem; font-weight: 700; }
+    .rack { margin-bottom: 26px; }
+    .rack-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: baseline;
+        margin-bottom: 8px;
+    }
+    .rack-name { font-weight: 600; }
+    .rack-summary { color: var(--muted); font-size: 0.85rem; }
+    .rack-row {
+        display: flex;
+        gap: 8px;
+        overflow-x: auto;
+        padding-bottom: 6px;
+    }
+    .rack-tile {
+        flex: 0 0 92px;
+        border-radius: 8px;
+        padding: 10px 8px;
+        text-align: center;
+        color: #fff;
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        cursor: pointer;
+    }
+    .rack-tile-addr { font-size: 0.72rem; opacity: 0.85; }
+    .rack-tile-power { font-weight: 700; font-size: 0.88rem; }
+    .rack-tile.charging { background: var(--good); }
+    .rack-tile.discharging { background: var(--warn); }
+    .rack-tile.idle { background: var(--muted); }
+    .stack-section { margin-bottom: 32px; }
+    .stack-heading {
+        font-size: 1rem;
+        margin: 0 0 12px 0;
+        display: flex;
+        align-items: baseline;
+        gap: 8px;
+    }
+    .stack-count { color: var(--muted); font-weight: normal; font-size: 0.8rem; }
+    .cards {
+        display: flex;
+        gap: 14px;
+        overflow-x: auto;
+        padding-bottom: 6px;
+        margin-bottom: 16px;
+    }
+    .card {
+        flex: 0 0 220px;
+        background: var(--card-bg);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 14px 16px;
+    }
+    .card h2 {
+        font-size: 0.95rem;
+        margin: 0 0 10px 0;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+    .card .stack-name { color: var(--muted); font-weight: normal; font-size: 0.8rem; }
+    .metric-row {
+        display: flex;
+        justify-content: space-between;
+        font-size: 0.85rem;
+        padding: 3px 0;
+    }
+    .metric-row .label { color: var(--muted); }
+    .soc-bar {
+        height: 6px;
+        border-radius: 3px;
+        background: var(--border);
+        margin: 8px 0 4px 0;
+        overflow: hidden;
+    }
+    .soc-bar > div { height: 100%; border-radius: 3px; }
+    .charts {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
+        gap: 20px;
+    }
+    .chart-box {
+        background: var(--card-bg);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 14px 16px;
+    }
+    .chart-box h3 { margin: 0 0 10px 0; font-size: 0.9rem; color: var(--muted); font-weight: 600; }
+    canvas { max-height: 280px; }
+    .empty { color: var(--muted); padding: 40px 0; text-align: center; }
+    .card { cursor: pointer; transition: border-color 0.15s; }
+    .card:hover { border-color: #4c8bf5; }
+    .card .hint { color: var(--muted); font-size: 0.75rem; margin-top: 8px; }
+    .card .serial { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.78rem; }
+    .card.has-alarm { border-color: var(--bad); }
+    .card.has-fault { border-color: var(--bad); border-width: 2px; }
+    .alarm-badge {
+        color: var(--bad);
+        font-weight: 600;
+        font-size: 0.78rem;
+    }
+    .fault-badge {
+        color: #fff;
+        background: var(--bad);
+        padding: 2px 6px;
+        border-radius: 4px;
+        font-size: 0.68rem;
+        font-weight: 700;
+        letter-spacing: 0.02em;
+        margin-left: 4px;
+    }
+
+    .modal-backdrop {
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.5);
+        display: flex;
+        align-items: flex-start;
+        justify-content: center;
+        padding: 40px 16px;
+        overflow-y: auto;
+        z-index: 10;
+    }
+    .modal {
+        background: var(--card-bg);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 20px 24px 24px;
+        width: 100%;
+        max-width: 720px;
+    }
+    .modal-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 16px;
+    }
+    .modal-header h2 { margin: 0; font-size: 1.1rem; }
+    .modal-header .stack-name { color: var(--muted); font-weight: normal; font-size: 0.85rem; }
+    .modal-meta { color: var(--muted); font-size: 0.8rem; margin-top: 2px; }
+    .modal-close {
+        background: none;
+        border: none;
+        color: var(--muted);
+        font-size: 1.4rem;
+        line-height: 1;
+        cursor: pointer;
+        padding: 4px 8px;
+    }
+    .modal-close:hover { color: var(--text); }
+    .cell-stats {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+        gap: 10px;
+        margin-bottom: 16px;
+    }
+    .cell-stats .stat {
+        background: var(--bg);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 8px 10px;
+    }
+    .cell-stats .stat .label { display: block; color: var(--muted); font-size: 0.72rem; }
+    .cell-stats .stat .value { font-size: 1rem; font-weight: 600; }
+    .modal h3 { margin: 18px 0 10px 0; font-size: 0.85rem; color: var(--muted); font-weight: 600; }
+    .alarms { margin: 0; padding-left: 18px; color: var(--bad); font-size: 0.85rem; }
+    .alarms li { margin: 2px 0; }
+    .no-alarms { margin: 0; color: var(--good); font-size: 0.85rem; }
+    .status-flags {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        font-size: 0.78rem;
+    }
+    .status-flags .flag {
+        border: 1px solid var(--border);
+        border-radius: 20px;
+        padding: 3px 10px;
+        color: var(--muted);
+    }
+    .status-flags .flag.on { color: var(--text); border-color: #4c8bf5; }
+</style>
+</head>
+<body>
+<h1>Pylontech Battery Dashboard</h1>
+<div class="subtitle" id="status">Waiting for data&hellip;</div>
+
+<div class="tabs">
+    <button class="tab-btn active" data-tab="overview">Overview</button>
+    <button class="tab-btn" data-tab="stacks">Stacks</button>
+</div>
+
+<div class="tab-panel" id="tab-overview">
+    <div class="overview-stats">
+        <div class="stat-tile">
+            <span class="stat-tile-label">Overall power</span>
+            <span class="stat-tile-value" id="overviewPower">-</span>
+        </div>
+        <div class="stat-tile">
+            <span class="stat-tile-label">Overall voltage</span>
+            <span class="stat-tile-value" id="overviewVoltage">-</span>
+        </div>
+        <div class="stat-tile">
+            <span class="stat-tile-label">Modules reporting</span>
+            <span class="stat-tile-value" id="overviewModuleCount">-</span>
+        </div>
+    </div>
+    <div id="overviewRacks"></div>
+</div>
+
+<div class="tab-panel" id="tab-stacks" hidden>
+    <div class="empty" id="emptyState">No battery data received yet.</div>
+    <div id="stackSections" hidden></div>
+</div>
+
+<div class="modal-backdrop" id="cellModalBackdrop" hidden>
+    <div class="modal">
+        <div class="modal-header">
+            <div>
+                <h2 id="cellModalTitle">Battery <span class="stack-name" id="cellModalStack"></span></h2>
+                <div class="modal-meta" id="cellModalMeta"></div>
+            </div>
+            <button class="modal-close" id="cellModalClose" aria-label="Close">&times;</button>
+        </div>
+        <div class="cell-stats">
+            <div class="stat"><span class="label">Min cell</span><span class="value" id="cellStatMin">-</span></div>
+            <div class="stat"><span class="label">Max cell</span><span class="value" id="cellStatMax">-</span></div>
+            <div class="stat"><span class="label">Average</span><span class="value" id="cellStatAvg">-</span></div>
+            <div class="stat"><span class="label">Max delta</span><span class="value" id="cellStatMaxDelta">-</span></div>
+            <div class="stat"><span class="label">Avg delta</span><span class="value" id="cellStatAvgDelta">-</span></div>
+        </div>
+        <h3>Cell voltages</h3>
+        <canvas id="cellVoltageChart"></canvas>
+        <h3>Temperature sensors</h3>
+        <canvas id="cellTempChart"></canvas>
+        <h3>Status</h3>
+        <div class="status-flags" id="statusFlags"></div>
+        <h3>Active alarms</h3>
+        <div id="alarmList"></div>
+    </div>
+</div>
+
+<script>
+const MAX_CELL_DELTA_MV = {{ max_cell_delta_mv }};
+const REFRESH_MS = 5000;
+const palette = ["#4c8bf5", "#e5673f", "#1a9e5c", "#c98a10", "#8c5bd6", "#22b6c8", "#d94b4b", "#5d6b7a"];
+
+function colorFor(index) { return palette[index % palette.length]; }
+
+function socColor(soc) {
+    if (soc >= 0.5) return "var(--good)";
+    if (soc >= 0.2) return "var(--warn)";
+    return "var(--bad)";
+}
+
+function formatTick(value) {
+    return new Date(value).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
+
+function makeChart(ctx, yLabel) {
+    return new Chart(ctx, {
+        type: "line",
+        data: { datasets: [] },
+        options: {
+            animation: false,
+            responsive: true,
+            parsing: false,
+            scales: {
+                x: { type: "linear", ticks: { callback: formatTick, maxRotation: 0 } },
+                y: { title: { display: true, text: yLabel } },
+            },
+            plugins: { legend: { position: "bottom" } },
+            elements: { point: { radius: 0 }, line: { tension: 0.15, borderWidth: 1.5 } },
+        },
+    });
+}
+
+function makeBarChart(ctx, yLabel) {
+    return new Chart(ctx, {
+        type: "bar",
+        data: { labels: [], datasets: [{ data: [], backgroundColor: [] }] },
+        options: {
+            animation: false,
+            responsive: true,
+            plugins: { legend: { display: false } },
+            scales: { y: { title: { display: true, text: yLabel }, beginAtZero: false } },
+        },
+    });
+}
+
+function makeCellVoltageChart(ctx) {
+    return new Chart(ctx, {
+        type: "bar",
+        data: {
+            labels: [],
+            datasets: [
+                { label: "Cell voltage", data: [], backgroundColor: [] },
+                { type: "line", label: "Average", data: [], borderColor: "#5d6b7a", borderDash: [6, 4], borderWidth: 1.5, pointRadius: 0, fill: false },
+            ],
+        },
+        options: {
+            animation: false,
+            responsive: true,
+            plugins: { legend: { display: true, position: "bottom", labels: { boxWidth: 12 } } },
+            scales: { y: { title: { display: true, text: "V" }, beginAtZero: false } },
+        },
+    });
+}
+
+const cellVoltageChart = makeCellVoltageChart(document.getElementById("cellVoltageChart"));
+const cellTempChart = makeBarChart(document.getElementById("cellTempChart"), "°C");
+
+let currentBatteries = [];
+let openCellKey = null;
+const stackSections = new Map(); // stack -> { cardsEl, countEl, charts: {voltage, soc, current, temp} }
+
+function batteryKey(bat) { return `${bat.stack}|${bat.addr}`; }
+
+function seriesLabel(bat) { return `#${bat.addr}`; }
+
+function toPoints(timestamps, values) {
+    return timestamps.map((t, i) => ({ x: Date.parse(t), y: values[i] }));
+}
+
+function updateChart(chart, batteries, metric, transform) {
+    chart.data.datasets = batteries.map((bat, i) => ({
+        label: seriesLabel(bat),
+        data: toPoints(bat.history.timestamps, bat.history[metric]).map(p => ({ x: p.x, y: transform ? transform(p.y) : p.y })),
+        borderColor: colorFor(i),
+        backgroundColor: colorFor(i),
+    }));
+    chart.update("none");
+}
+
+function cellDeltaStats(voltages) {
+    const minV = Math.min(...voltages);
+    const maxV = Math.max(...voltages);
+    const avgV = voltages.reduce((a, b) => a + b, 0) / voltages.length;
+    const maxDeltaMv = (maxV - minV) * 1000;
+    const avgDeltaMv = (voltages.reduce((a, v) => a + Math.abs(v - avgV), 0) / voltages.length) * 1000;
+    return { minV, maxV, avgV, maxDeltaMv, avgDeltaMv, isFaulty: maxDeltaMv > MAX_CELL_DELTA_MV };
+}
+
+function cardHtml(bat) {
+    const d = bat.latest;
+    const socPct = (d.StateOfCharge * 100).toFixed(1);
+    const alarmBadge = d.HasAlarm ? `<span class="alarm-badge">&#9888; ${d.Alarms.length}</span>` : "";
+    const cell = cellDeltaStats(d.CellVoltages);
+    const faultBadge = cell.isFaulty ? `<span class="fault-badge">FAULTY</span>` : "";
+    const classes = ["card"];
+    if (d.HasAlarm) classes.push("has-alarm");
+    if (cell.isFaulty) classes.push("has-fault");
+    return `
+    <div class="${classes.join(" ")}" data-key="${batteryKey(bat)}">
+        <h2>${bat.addr} ${alarmBadge}${faultBadge}</h2>
+        <div class="soc-bar"><div style="width:${socPct}%; background:${socColor(d.StateOfCharge)}"></div></div>
+        <div class="metric-row"><span class="label">State of charge</span><span>${socPct}%</span></div>
+        <div class="metric-row"><span class="label">Voltage</span><span>${d.Voltage.toFixed(2)} V</span></div>
+        <div class="metric-row"><span class="label">Current</span><span>${d.Current.toFixed(2)} A</span></div>
+        <div class="metric-row"><span class="label">Power</span><span>${d.Power.toFixed(0)} W</span></div>
+        <div class="metric-row"><span class="label">Cycle count</span><span>${d.CycleNumber}</span></div>
+        <div class="metric-row"><span class="label">BMS temp</span><span>${d.AverageBMSTemperature.toFixed(1)} °C</span></div>
+        <div class="metric-row"><span class="label">Cell delta</span><span${cell.isFaulty ? ' style="color:var(--bad); font-weight:600"' : ""}>${cell.maxDeltaMv.toFixed(0)} mV</span></div>
+        <div class="metric-row"><span class="label">Type</span><span>${d.DeviceType || "-"}</span></div>
+        <div class="metric-row"><span class="label">Serial</span><span class="serial">${d.SerialNumber || "-"}</span></div>
+        <div class="hint">Click for cell detail &rarr;</div>
+    </div>`;
+}
+
+function ensureStackSection(stack) {
+    if (stackSections.has(stack)) return stackSections.get(stack);
+
+    const section = document.createElement("section");
+    section.className = "stack-section";
+    section.innerHTML = `
+        <h2 class="stack-heading">${stack} <span class="stack-count" data-role="count"></span></h2>
+        <div class="cards" data-role="cards"></div>
+        <div class="charts">
+            <div class="chart-box"><h3>Voltage (last hour)</h3><canvas></canvas></div>
+            <div class="chart-box"><h3>State of charge (last hour)</h3><canvas></canvas></div>
+            <div class="chart-box"><h3>Current (last hour)</h3><canvas></canvas></div>
+            <div class="chart-box"><h3>BMS temperature (last hour)</h3><canvas></canvas></div>
+        </div>`;
+    document.getElementById("stackSections").appendChild(section);
+
+    const canvases = section.querySelectorAll(".charts canvas");
+    const entry = {
+        cardsEl: section.querySelector('[data-role="cards"]'),
+        countEl: section.querySelector('[data-role="count"]'),
+        charts: {
+            voltage: makeChart(canvases[0], "V"),
+            soc: makeChart(canvases[1], "%"),
+            current: makeChart(canvases[2], "A"),
+            temp: makeChart(canvases[3], "°C"),
+        },
+    };
+    stackSections.set(stack, entry);
+    return entry;
+}
+
+function renderStacks(batteries) {
+    const emptyEl = document.getElementById("emptyState");
+    const sectionsEl = document.getElementById("stackSections");
+
+    if (batteries.length === 0) {
+        emptyEl.hidden = false;
+        sectionsEl.hidden = true;
+        return;
+    }
+    emptyEl.hidden = true;
+    sectionsEl.hidden = false;
+
+    const stackOrder = [];
+    const groups = new Map();
+    for (const bat of batteries) {
+        if (!groups.has(bat.stack)) {
+            groups.set(bat.stack, []);
+            stackOrder.push(bat.stack);
+        }
+        groups.get(bat.stack).push(bat);
+    }
+
+    for (const stack of stackOrder) {
+        const bats = groups.get(stack);
+        const entry = ensureStackSection(stack);
+        entry.countEl.textContent = `${bats.length} module${bats.length === 1 ? "" : "s"}`;
+        entry.cardsEl.innerHTML = bats.map(cardHtml).join("");
+        entry.cardsEl.querySelectorAll(".card").forEach(el => {
+            el.addEventListener("click", () => openCellModal(el.dataset.key));
+        });
+
+        updateChart(entry.charts.voltage, bats, "Voltage");
+        updateChart(entry.charts.soc, bats, "StateOfCharge", v => v * 100);
+        updateChart(entry.charts.current, bats, "Current");
+        updateChart(entry.charts.temp, bats, "AverageBMSTemperature");
+    }
+}
+
+function cellColors(voltages, minV, maxV, statuses, errors) {
+    return voltages.map((v, i) => {
+        const alarmed = (errors && errors[i]) || (statuses && statuses[i] && statuses[i] !== "normal");
+        if (alarmed) return "#d94b4b";
+        if (v === minV) return "#e5673f";
+        if (v === maxV) return "#1a9e5c";
+        return "#4c8bf5";
+    });
+}
+
+function renderCellModal(bat) {
+    const d = bat.latest;
+    const voltages = d.CellVoltages;
+    const temps = d.GroupedCellsTemperatures;
+    const cell = cellDeltaStats(voltages);
+
+    const faultBadge = cell.isFaulty ? ` <span class="fault-badge">FAULTY</span>` : "";
+    document.getElementById("cellModalTitle").innerHTML = `Battery ${bat.addr} <span class="stack-name">${bat.stack}</span>${faultBadge}`;
+    document.getElementById("cellModalMeta").textContent = `${d.DeviceType || "Unknown type"} · S/N ${d.SerialNumber || "-"}`;
+    document.getElementById("cellStatMin").textContent = `${cell.minV.toFixed(3)} V`;
+    document.getElementById("cellStatMax").textContent = `${cell.maxV.toFixed(3)} V`;
+    document.getElementById("cellStatAvg").textContent = `${cell.avgV.toFixed(3)} V`;
+
+    const maxDeltaEl = document.getElementById("cellStatMaxDelta");
+    maxDeltaEl.textContent = `${cell.maxDeltaMv.toFixed(0)} mV`;
+    maxDeltaEl.style.color = cell.isFaulty ? "var(--bad)" : "";
+    document.getElementById("cellStatAvgDelta").textContent = `${cell.avgDeltaMv.toFixed(0)} mV`;
+
+    cellVoltageChart.data.labels = voltages.map((_, i) => `Cell ${i + 1}`);
+    cellVoltageChart.data.datasets[0].data = voltages;
+    cellVoltageChart.data.datasets[0].backgroundColor = cellColors(voltages, cell.minV, cell.maxV, d.CellVoltageStatus, d.CellVoltageError);
+    cellVoltageChart.data.datasets[1].data = voltages.map(() => cell.avgV);
+    cellVoltageChart.options.scales.y.suggestedMin = cell.minV - 0.02;
+    cellVoltageChart.options.scales.y.suggestedMax = cell.maxV + 0.02;
+    cellVoltageChart.update("none");
+
+    cellTempChart.data.labels = temps.map((_, i) => `Sensor ${i + 1}`);
+    cellTempChart.data.datasets[0].data = temps;
+    cellTempChart.data.datasets[0].backgroundColor = (d.TemperatureStatus || []).length
+        ? temps.map((_, i) => (d.TemperatureStatus[i] && d.TemperatureStatus[i] !== "normal") ? "#d94b4b" : "#22b6c8")
+        : temps.map(() => "#22b6c8");
+    cellTempChart.update("none");
+
+    const statusFlagsEl = document.getElementById("statusFlags");
+    const flags = [
+        ["Charge MOSFET", d.ChargeMosfetOn],
+        ["Discharge MOSFET", d.DischargeMosfetOn],
+        ["Fully charged", d.FullyCharged],
+        ["Buzzer", d.BuzzerOn],
+    ];
+    if (d.ChargeMosfetOn === undefined) {
+        statusFlagsEl.innerHTML = `<span class="flag">Alarm info unavailable</span>`;
+    } else {
+        statusFlagsEl.innerHTML = flags.map(([label, on]) =>
+            `<span class="flag${on ? " on" : ""}">${label}</span>`).join("");
+    }
+
+    const alarmListEl = document.getElementById("alarmList");
+    if (d.Alarms && d.Alarms.length) {
+        alarmListEl.innerHTML = `<ul class="alarms">${d.Alarms.map(a => `<li>${a}</li>`).join("")}</ul>`;
+    } else if (d.HasAlarm === undefined) {
+        alarmListEl.innerHTML = `<p class="no-alarms">Alarm info unavailable</p>`;
+    } else {
+        alarmListEl.innerHTML = `<p class="no-alarms">No active alarms</p>`;
+    }
+}
+
+function openCellModal(key) {
+    const bat = currentBatteries.find(b => batteryKey(b) === key);
+    if (!bat) return;
+    openCellKey = key;
+    renderCellModal(bat);
+    document.getElementById("cellModalBackdrop").hidden = false;
+}
+
+function closeCellModal() {
+    openCellKey = null;
+    document.getElementById("cellModalBackdrop").hidden = true;
+}
+
+document.getElementById("cellModalClose").addEventListener("click", closeCellModal);
+document.getElementById("cellModalBackdrop").addEventListener("click", (e) => {
+    if (e.target.id === "cellModalBackdrop") closeCellModal();
+});
+
+document.querySelectorAll(".tab-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+        document.querySelectorAll(".tab-btn").forEach(b => b.classList.remove("active"));
+        btn.classList.add("active");
+        document.querySelectorAll(".tab-panel").forEach(p => { p.hidden = true; });
+        document.getElementById(`tab-${btn.dataset.tab}`).hidden = false;
+    });
+});
+
+function powerClass(power) {
+    if (power > 5) return "charging";
+    if (power < -5) return "discharging";
+    return "idle";
+}
+
+function renderOverview(batteries) {
+    const powerEl = document.getElementById("overviewPower");
+    const voltageEl = document.getElementById("overviewVoltage");
+    const countEl = document.getElementById("overviewModuleCount");
+    const racksEl = document.getElementById("overviewRacks");
+
+    if (batteries.length === 0) {
+        powerEl.textContent = "-";
+        voltageEl.textContent = "-";
+        countEl.textContent = "0";
+        racksEl.innerHTML = '<div class="empty">No battery data received yet.</div>';
+        return;
+    }
+
+    const totalPower = batteries.reduce((sum, b) => sum + b.latest.Power, 0);
+    const avgVoltage = batteries.reduce((sum, b) => sum + b.latest.Voltage, 0) / batteries.length;
+    const maxAbsPower = Math.max(1, ...batteries.map(b => Math.abs(b.latest.Power)));
+
+    powerEl.textContent = `${totalPower >= 0 ? "+" : ""}${totalPower.toFixed(0)} W`;
+    voltageEl.textContent = `${avgVoltage.toFixed(2)} V`;
+    countEl.textContent = `${batteries.length}`;
+
+    const stackOrder = [];
+    const groups = new Map();
+    for (const bat of batteries) {
+        if (!groups.has(bat.stack)) {
+            groups.set(bat.stack, []);
+            stackOrder.push(bat.stack);
+        }
+        groups.get(bat.stack).push(bat);
+    }
+
+    racksEl.innerHTML = stackOrder.map(stack => {
+        const bats = groups.get(stack);
+        const stackPower = bats.reduce((sum, b) => sum + b.latest.Power, 0);
+        const stackVoltage = bats.reduce((sum, b) => sum + b.latest.Voltage, 0) / bats.length;
+
+        const tiles = bats.map(bat => {
+            const p = bat.latest.Power;
+            const opacity = Math.max(0.35, Math.min(1, Math.abs(p) / maxAbsPower));
+            return `
+            <div class="rack-tile ${powerClass(p)}" style="opacity:${opacity.toFixed(2)}" data-key="${batteryKey(bat)}" title="Battery ${bat.addr}: ${p.toFixed(0)} W">
+                <span class="rack-tile-addr">${bat.addr}</span>
+                <span class="rack-tile-power">${p >= 0 ? "+" : ""}${p.toFixed(0)} W</span>
+            </div>`;
+        }).join("");
+
+        return `
+        <div class="rack">
+            <div class="rack-header">
+                <span class="rack-name">${stack}</span>
+                <span class="rack-summary">${stackPower >= 0 ? "+" : ""}${stackPower.toFixed(0)} W · ${stackVoltage.toFixed(2)} V avg</span>
+            </div>
+            <div class="rack-row">${tiles}</div>
+        </div>`;
+    }).join("");
+
+    racksEl.querySelectorAll(".rack-tile").forEach(el => {
+        el.addEventListener("click", () => openCellModal(el.dataset.key));
+    });
+}
+
+async function refresh() {
+    try {
+        const res = await fetch("/api/snapshot");
+        const data = await res.json();
+        document.getElementById("status").textContent =
+            `${data.batteries.length} battery module(s) reporting · updated ${new Date(data.generatedAt).toLocaleTimeString()}`;
+
+        currentBatteries = data.batteries;
+        renderOverview(data.batteries);
+        renderStacks(data.batteries);
+
+        if (openCellKey) {
+            const bat = data.batteries.find(b => batteryKey(b) === openCellKey);
+            if (bat) renderCellModal(bat);
+        }
+    } catch (e) {
+        document.getElementById("status").textContent = "Could not reach the dashboard backend.";
+        console.error(e);
+    }
+}
+
+refresh();
+setInterval(refresh, REFRESH_MS);
+</script>
+</body>
+</html>

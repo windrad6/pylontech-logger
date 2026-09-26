@@ -44,6 +44,7 @@ class csvWriter:
 
         if self.fh is None:
             self.buildFName()
+            os.makedirs(self.path, exist_ok=True)
             fileExists = False
             if os.path.isfile(f"{self.path}/{self.fname}"):
                 fileExists = True

@@ -1,0 +1,52 @@
+services:
+  mosquitto:
+    image: eclipse-mosquitto:2
+    container_name: pylontech-mosquitto
+    ports:
+      - "1883:1883"
+    volumes:
+      - ./packaging/mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+    restart: unless-stopped
+
+  reader:
+    build:
+      context: .
+      dockerfile: packaging/Dockerfile.reader
+    container_name: pylontech-reader
+    depends_on:
+      - mosquitto
+    environment:
+      MQTT_HOST: mosquitto
+      MQTT_PORT: "1883"
+    volumes:
+      - ./examples/config.ini:/app/examples/config.ini:ro
+    restart: unless-stopped
+
+  csv-writer:
+    build:
+      context: .
+      dockerfile: packaging/Dockerfile.csv
+    container_name: pylontech-csv-writer
+    depends_on:
+      - mosquitto
+    environment:
+      MQTT_HOST: mosquitto
+      MQTT_PORT: "1883"
+    volumes:
+      - ./data:/app/data
+    restart: unless-stopped
+
+  ui:
+    build:
+      context: .
+      dockerfile: packaging/Dockerfile.ui
+    container_name: pylontech-ui
+    depends_on:
+      - mosquitto
+    environment:
+      MQTT_HOST: mosquitto
+      MQTT_PORT: "1883"
+      MAX_CELL_DELTA_MV: "10"
+    ports:
+      - "8080:8080"
+    restart: unless-stopped

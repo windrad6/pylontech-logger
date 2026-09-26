@@ -41,6 +41,23 @@ To enable the virtual environment (Linux) run
 
 `source .venv/bin/activate`
 
+## Docker/Podman stack (MQTT + CSV logging + dashboard)
+
+`docker-compose.yml` runs the whole pipeline as separate containers:
+
+- `mosquitto` — MQTT broker.
+- `reader` — reads the battery stacks defined in [examples/config.ini](examples/config.ini) and publishes raw readings to MQTT (topic `pylontech/<stack>/<addr>`). No averaging happens here.
+- `csv-writer` — subscribes to MQTT, averages each battery's readings per minute (same logic previously in `read_to_csv.py`), and writes one CSV per battery address to `./data`.
+- `ui` — subscribes to MQTT and serves a dashboard at [http://localhost:8080](http://localhost:8080), grouped by stack, with live values, per-stack history charts for the last hour, and a per-battery cell voltage/temperature detail view. A battery is flagged red/"FAULTY" when its cell voltage spread exceeds `MAX_CELL_DELTA_MV` (default 10 mV, set in `docker-compose.yml`).
+
+Edit `examples/config.ini` with your battery stacks' `addr`/`ip`/`port` (see [scan.py](examples/scan.py) to discover addresses), then run:
+
+```
+podman compose up --build
+```
+
+(or `docker compose up --build` if you're using Docker instead of Podman).
+
 ## License
 
 Licensed under either of

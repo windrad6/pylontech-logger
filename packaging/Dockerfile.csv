@@ -1,0 +1,13 @@
+FROM python:3.13-slim
+
+WORKDIR /app
+
+COPY pyproject.toml ./
+RUN pip install --no-cache-dir ".[mqtt]"
+
+COPY csvWiter.py avg.py mqtt_common.py pylontech_data.py ./
+COPY services/csv_writer ./services/csv_writer
+
+ENV PYTHONUNBUFFERED=1
+
+CMD ["python3", "services/csv_writer/save_to_csv.py"]

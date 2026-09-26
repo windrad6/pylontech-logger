@@ -1,0 +1,20 @@
+FROM python:3.13-slim
+
+ENV TZ=Europe/Berlin
+RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
+
+RUN apt-get update && apt-get install -y --no-install-recommends socat \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+COPY pyproject.toml ./
+RUN pip install --no-cache-dir ".[mqtt]"
+
+COPY mqtt_common.py pylontech_data.py pylontech_alarm.py ./
+COPY services/reader ./services/reader
+COPY examples/config.ini ./examples/config.ini
+
+ENV PYTHONUNBUFFERED=1
+
+CMD ["python3", "services/reader/read_to_mqtt.py"]

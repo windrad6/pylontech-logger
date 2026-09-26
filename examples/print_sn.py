@@ -1,21 +1,26 @@
+import configparser
+import logging
+import pathlib
+import subprocess, tempfile, time
 import pylontech
-import subprocess, time
+import coloredlogs
+coloredlogs.install(level="DEBUG")
 
+logger = logging.getLogger(__name__)
 
-batList = {
-    "bat1" : {
-        "addr" : [18,19,20,21,22],
-        "dev" : "/home/mrx/bat1",
-        "ip" : "10.200.8.138",
-        "port" : "26"
-    },
-    "bat2" : {
-        "addr" : [34,35,36,37,38],
-        "dev" : "/home/mrx/bat2",
-        "ip" : "10.200.8.138",
-        "port" : "32"
+config = configparser.ConfigParser()
+config.read(pathlib.Path(__file__).parent / "config.ini")
+
+tmpDir = tempfile.mkdtemp(prefix="pylontech-")
+
+batList = {}
+for section in config.sections():
+    batList[section] = {
+        "addr": [int(a.strip()) for a in config[section]["addr"].split(",")],
+        "dev": str(pathlib.Path(tmpDir) / section),
+        "ip": config[section]["ip"],
+        "port": config[section]["port"],
     }
-}
 
 batHandle = {}
 for elm in batList:
@@ -24,6 +29,7 @@ for elm in batList:
     batHandle.update({elm : pylontech.Pylontech(serial_port=batList[elm]["dev"])})
 
 for elm in batList:
+    logger.info(f"Probing battery stack {elm} ({batList[elm]['ip']}:{batList[elm]['port']})")
     for addr in batList[elm]["addr"]:
         data = batHandle[elm].get_module_serial_number(addr)
         print(  "Bat " + str(addr) + "\t" +

@@ -1,10 +1,15 @@
+import configparser
+import logging
+import pathlib
 import pylontech
-import subprocess, time, os, sys
+import subprocess, tempfile, time, sys
 from datetime import datetime
+import coloredlogs
+coloredlogs.install(level="DEBUG")
 
+logger = logging.getLogger(__name__)
 
-
-sys.path.append(os.getcwd() + '/..')
+sys.path.append(str(pathlib.Path(__file__).parent.parent))
 from csvWiter import csvWriter
 from avg import avg
 
@@ -77,39 +82,40 @@ def genHeader():
     return r
 
 
-batList = {
-    "bat1" : {
-        "addr" : [18,19,20,21,22],
-        "dev" : "/tmp/bat1",
-        "ip" : "10.200.8.138",
-        "port" : "26"
-    },
-    "bat2" : {
-        "addr" : [34,35,36,37,38],
-        "dev" : "/tmp/bat2",
-        "ip" : "10.200.8.138",
-        "port" : "32"
+config = configparser.ConfigParser()
+config.read(pathlib.Path(__file__).parent / "config.ini")
+
+tmpDir = tempfile.mkdtemp(prefix="pylontech-")
+
+batList = {}
+for section in config.sections():
+    batList[section] = {
+        "addr": [int(a.strip()) for a in config[section]["addr"].split(",")],
+        "dev": str(pathlib.Path(tmpDir) / section),
+        "ip": config[section]["ip"],
+        "port": config[section]["port"],
     }
-}
+
 batCSVList = {}
 batHandle = {}
 avgObj = {}
 
-print("Create sockets")
+logger.info("Create sockets")
 for elm in batList:
+    logger.info(f"Probing battery stack {elm} ({batList[elm]['ip']}:{batList[elm]['port']})")
     subprocess.Popen(["/usr/bin/socat", "pty,link=" + batList[elm]["dev"] + ",waitslave", "tcp:" + batList[elm]["ip"] + ":" + batList[elm]["port"]])
     time.sleep(1)# wait a second to create the socket
     batHandle.update({elm : pylontech.Pylontech(serial_port=batList[elm]["dev"])})
 
     #creat csv object per battery
     for addr in batList[elm]["addr"]:
-        batCSVList.update({str(addr) : csvWriter("./data", "bat_" + str(addr), delimiter = ";", flushLines = 1)})
+        batCSVList.update({str(addr) : csvWriter(str(pathlib.Path(__file__).parent / "data"), "bat_" + str(addr), delimiter = ";", flushLines = 1)})
         header = genHeader()
         header.insert(0, "Count")
         header.insert(0, "Date")
         batCSVList[str(addr)].setHeader(header)
         avgObj.update({str(addr) : avg("minute")})
-print("Start reading data")
+logger.info("Start reading data")
 while True:
     for elm in batList:
         for addr in batList[elm]["addr"]:
@@ -126,3 +132,4 @@ while True:
                 batCSVList[str(addr)].writeLine(lineData)
 
             avgObj[str(addr)].add(data)
+            #logger.debug(f"Read data from address {addr}")
