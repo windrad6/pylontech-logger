@@ -18,8 +18,6 @@ tmpDir = tempfile.mkdtemp(prefix="pylontech-")
 
 batList = {}
 for section in config.sections():
-    if section == "general":
-        continue
     batList[section] = {
         "dev": str(pathlib.Path(tmpDir) / section),
         "ip": config[section]["ip"],

@@ -18,6 +18,7 @@ services:
     environment:
       MQTT_HOST: mosquitto
       MQTT_PORT: "1883"
+      ALARM_POLL_INTERVAL_S: "60"
     volumes:
       - ./config.ini:/app/config.ini:ro
     restart: unless-stopped
@@ -32,8 +33,8 @@ services:
     environment:
       MQTT_HOST: mosquitto
       MQTT_PORT: "1883"
+      DATA_DIR: /app/data
     volumes:
-      - ./config.ini:/app/config.ini:ro
       - ./data:/app/data
     restart: unless-stopped
 
@@ -48,6 +49,8 @@ services:
       MQTT_HOST: mosquitto
       MQTT_PORT: "1883"
       MAX_CELL_DELTA_MV: "10"
+      HISTORY_HOURS: "24"
+      UI_PORT: "9080"
     ports:
-      - "8080:8080"
+      - "9080:9080"
     restart: unless-stopped

@@ -23,6 +23,7 @@ logger = logging.getLogger(__name__)
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent.parent
 CONFIG_PATH = pathlib.Path(os.environ.get("CONFIG_PATH", REPO_ROOT / "config.ini"))
+ALARM_POLL_INTERVAL_S = float(os.environ.get("ALARM_POLL_INTERVAL_S", "10"))
 
 config = configparser.ConfigParser()
 config.read(CONFIG_PATH)
@@ -31,8 +32,6 @@ tmpDir = tempfile.mkdtemp(prefix="pylontech-")
 
 batList = {}
 for section in config.sections():
-    if section == "general":
-        continue
     batList[section] = {
         "addr": [int(a.strip()) for a in config[section]["addr"].split(",")],
         "dev": str(pathlib.Path(tmpDir) / section),
@@ -56,7 +55,7 @@ def read_stack(elm: str, cfg: dict):
     their own socket/serial connection and thread, so they run in parallel.
     """
     logger.info(f"Probing battery stack {elm} ({cfg['ip']}:{cfg['port']})")
-    subprocess.Popen(["/usr/bin/socat", "pty,link=" + cfg["dev"] + ",waitslave", "tcp:" + cfg["ip"] + ":" + cfg["port"]])
+    subprocess.Popen(["/usr/bin/socat", "pty,link=" + cfg["dev"] + ",waitslave", "tcp:" + cfg["ip"] + ":" + cfg["port"] + ",nodelay"])
     time.sleep(1)# wait a second to create the socket
     bat = pylontech.Pylontech(serial_port=cfg["dev"])
 
@@ -70,6 +69,9 @@ def read_stack(elm: str, cfg: dict):
         staticInfo[addr] = info
         logger.info(f"{elm} address {addr}: serial={info['SerialNumber']}")
 
+    lastAlarmCheck = {addr: 0.0 for addr in cfg["addr"]}
+    lastAlarmData = {addr: {} for addr in cfg["addr"]}
+
     logger.info(f"Start reading data for {elm}")
     while True:
         for addr in cfg["addr"]:
@@ -81,10 +83,18 @@ def read_stack(elm: str, cfg: dict):
                 data["DeviceType"] = guess_device_type(data["TotalCapacity"])
                 data.update(staticInfo[addr])
 
-                try:
-                    data.update(to_alarm_dict(get_alarm_info(bat, addr)))
-                except Exception as e:
-                    logger.warning(f"Could not read alarm info for {elm} address {addr}: {e}")
+                # Alarms rarely change, so this doubles the round trips per
+                # address for little benefit if polled every cycle - refresh
+                # it periodically instead and keep publishing the last known
+                # value in between.
+                now = time.monotonic()
+                if now - lastAlarmCheck[addr] >= ALARM_POLL_INTERVAL_S:
+                    try:
+                        lastAlarmData[addr] = to_alarm_dict(get_alarm_info(bat, addr))
+                        lastAlarmCheck[addr] = now
+                    except Exception as e:
+                        logger.warning(f"Could not read alarm info for {elm} address {addr}: {e}")
+                data.update(lastAlarmData[addr])
 
                 mqttClient.publish(mqtt_common.data_topic(elm, addr), json.dumps(data))
             except Exception as e:

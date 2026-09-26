@@ -5,10 +5,10 @@ WORKDIR /app
 COPY pyproject.toml ./
 RUN pip install --no-cache-dir ".[ui]"
 
-COPY mqtt_common.py ./
+COPY mqtt_common.py pylontech_data.py ./
 COPY services/ui ./services/ui
 
 ENV PYTHONUNBUFFERED=1
-EXPOSE 8080
+EXPOSE 9080
 
 CMD ["python3", "services/ui/app.py"]
