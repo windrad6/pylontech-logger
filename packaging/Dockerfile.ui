@@ -5,7 +5,7 @@ WORKDIR /app
 COPY pyproject.toml ./
 RUN pip install --no-cache-dir ".[ui]"
 
-COPY mqtt_common.py pylontech_data.py ./
+COPY mqtt_common.py pylontech_data.py config.ini ./
 COPY services/ui ./services/ui
 
 ENV PYTHONUNBUFFERED=1

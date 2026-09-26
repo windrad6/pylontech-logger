@@ -48,9 +48,11 @@ To enable the virtual environment (Linux) run
 - `mosquitto` — MQTT broker.
 - `reader` — reads the battery stacks defined in [config.ini](config.ini) and publishes raw readings to MQTT (topic `pylontech/<stack>/<addr>`). No averaging happens here. Alarm info is refreshed only every `ALARM_POLL_INTERVAL_S` seconds per battery (default 10) since it changes rarely, halving the serial round trips compared to reading it on every cycle.
 - `csv-writer` — subscribes to MQTT, averages each battery's readings per minute (same logic previously in `read_to_csv.py`), and writes one CSV per battery address to the folder set by `DATA_DIR` in `docker-compose.yml` (defaults to `./data`).
-- `ui` — subscribes to MQTT and serves a dashboard at [http://localhost:9080](http://localhost:9080), grouped by stack, with live values, per-stack history charts, and a per-battery cell voltage/temperature detail view (including a per-cell voltage history plot and a CSV export button). A battery is flagged red/"FAULTY" when its cell voltage spread exceeds `MAX_CELL_DELTA_MV` (default 10 mV). The history window shown in every chart is set by `HISTORY_HOURS` (default 1 hour), both set in `docker-compose.yml`.
+- `ui` — subscribes to MQTT and serves a dashboard at [http://localhost:9080](http://localhost:9080), grouped by stack, with live values, per-stack history charts, and a per-battery cell voltage/temperature detail view (including a per-cell voltage history plot and CSV/PDF export). A battery is flagged red/"FAULTY" when its cell voltage spread exceeds `MAX_CELL_DELTA_MV` (default 10 mV). The history window shown in every chart is set by `HISTORY_HOURS` (default 1 hour), both set in `docker-compose.yml`. A battery is marked stale (orange) once it hasn't reported for 2x its own average reporting interval, and offline (red, excluded from the Overview's power totals) at 5x.
 
 Edit [config.ini](config.ini) with your battery stacks' `addr`/`ip`/`port` (see [scan.py](examples/scan.py) to discover addresses), then run:
+
+All three services connect to the internal `mosquitto` broker by default. To use an external broker instead, fill in the `[mqtt]` section of `config.ini` (`host`, `port`, `user`, `password`) — any field left blank/commented keeps using the internal broker.
 
 ```
 podman compose up --build

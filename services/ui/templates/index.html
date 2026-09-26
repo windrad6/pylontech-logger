@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <title>Pylontech Battery Dashboard</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.1/dist/chartjs-plugin-zoom.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
 <style>
     :root {
@@ -101,6 +102,11 @@
     .rack-tile.charging { background: var(--good); }
     .rack-tile.discharging { background: var(--warn); }
     .rack-tile.idle { background: var(--muted); }
+    .rack-tile.offline { background: repeating-linear-gradient(45deg, var(--border), var(--border) 6px, var(--bg) 6px, var(--bg) 12px); color: var(--muted); opacity: 1 !important; }
+    .status-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 4px; }
+    .status-dot.online { background: var(--good); }
+    .status-dot.stale { background: var(--warn); }
+    .status-dot.offline { background: var(--bad); }
     .hover-tooltip {
         position: fixed;
         z-index: 20;
@@ -180,6 +186,17 @@
         padding: 14px 16px;
     }
     .chart-box h3 { margin: 0 0 10px 0; font-size: 0.9rem; color: var(--muted); font-weight: 600; }
+    .line-style-key {
+        display: flex;
+        gap: 12px;
+        flex-wrap: wrap;
+        margin: -4px 0 10px 0;
+        font-size: 0.72rem;
+        color: var(--muted);
+    }
+    .line-style-key .key-item { display: inline-flex; align-items: center; gap: 5px; }
+    .line-style-key .key-swatch { display: inline-block; width: 16px; height: 0; border-top: 2px solid var(--muted); }
+    .line-style-key .key-swatch.dashed { border-top-style: dashed; }
     canvas { max-height: 280px; }
     .empty { color: var(--muted); padding: 40px 0; text-align: center; }
     .card { cursor: pointer; transition: border-color 0.15s; }
@@ -188,6 +205,8 @@
     .card .serial { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.78rem; }
     .card.has-alarm { border-color: var(--bad); }
     .card.has-fault { border-color: var(--bad); border-width: 2px; }
+    .card.stale { border-color: var(--warn); }
+    .card.offline { border-color: var(--bad); opacity: 0.7; }
     .alarm-badge {
         color: var(--bad);
         font-weight: 600;
@@ -288,23 +307,10 @@
     .modal-chart-temp canvas { height: 100% !important; max-height: none !important; }
     .export-buttons { display: flex; gap: 8px; margin-top: 10px; }
     .timeframe-row {
-        display: flex;
-        align-items: center;
-        flex-wrap: wrap;
-        gap: 8px;
         font-size: 0.8rem;
         color: var(--muted);
         margin: 12px 0 4px 0;
     }
-    .timeframe-row input[type="datetime-local"] {
-        background: var(--bg);
-        border: 1px solid var(--border);
-        border-radius: 6px;
-        color: var(--text);
-        padding: 4px 6px;
-        font-size: 0.78rem;
-    }
-    .timeframe-row .export-btn { flex: none; margin-top: 0; padding: 4px 10px; }
     .export-btn {
         flex: 1;
         background: none;
@@ -323,6 +329,7 @@
 <h1>Pylontech Battery Dashboard</h1>
 <div class="subtitle" id="status">Waiting for data&hellip;</div>
 <div class="subtitle" id="reportRates"></div>
+<button class="export-btn" id="clearCacheBtn" style="margin-bottom: 16px;">Clear cache</button>
 
 <div class="tabs">
     <button class="tab-btn active" data-tab="overview">Overview</button>
@@ -340,17 +347,23 @@
             <span class="stat-tile-value" id="overviewVoltage">-</span>
         </div>
         <div class="stat-tile">
-            <span class="stat-tile-label">Modules reporting</span>
+            <span class="stat-tile-label">Modules online</span>
             <span class="stat-tile-value" id="overviewModuleCount">-</span>
         </div>
     </div>
     <div class="charts">
         <div class="chart-box">
-            <h3>System power (<span class="history-label"></span>)</h3>
+            <h3>Total power (<span class="history-label"></span>)</h3>
+            <canvas id="totalPowerChart"></canvas>
+        </div>
+        <div class="chart-box">
+            <h3>Power per battery (<span class="history-label"></span>)</h3>
+            <div class="line-style-key" id="powerLineKey"></div>
             <canvas id="overviewPowerChart"></canvas>
         </div>
         <div class="chart-box">
-            <h3>System voltage (<span class="history-label"></span>)</h3>
+            <h3>Voltage per battery (<span class="history-label"></span>)</h3>
+            <div class="line-style-key" id="voltageLineKey"></div>
             <canvas id="overviewVoltageChart"></canvas>
         </div>
     </div>
@@ -403,13 +416,7 @@
                 <div class="modal-chart-temp"><canvas id="cellTempChart"></canvas></div>
             </div>
         </div>
-        <div class="timeframe-row">
-            <span>Timeframe:</span>
-            <input type="datetime-local" id="rangeStart">
-            <span>to</span>
-            <input type="datetime-local" id="rangeEnd">
-            <button class="export-btn" id="rangeResetBtn" type="button">Full range</button>
-        </div>
+        <div class="timeframe-row">Drag on the chart below to zoom into a time range &middot; right-click to reset</div>
         <h3>Cell voltage history (<span id="cellHistoryRangeLabel"></span>)</h3>
         <canvas id="cellVoltageHistoryChart"></canvas>
         <h3>Status</h3>
@@ -420,7 +427,7 @@
             <button class="export-btn" id="exportCsvBtn">Export CSV</button>
             <button class="export-btn" id="exportPdfBtn">Export PDF</button>
         </div>
-        <div class="hint" style="margin-top:6px;">CSV/PDF export uses the timeframe selected above.</div>
+        <div class="hint" style="margin-top:6px;">CSV/PDF export uses the zoomed timeframe from the history chart above (or the full history if not zoomed).</div>
     </div>
 </div>
 
@@ -440,6 +447,28 @@ const palette = ["#4c8bf5", "#e5673f", "#1a9e5c", "#c98a10", "#8c5bd6", "#22b6c8
 
 function colorFor(index) { return palette[index % palette.length]; }
 
+function colorForAddr(addr) { return palette[addr % palette.length]; }
+
+// Physical stacks named "...Top..."/"...Bottom..." share the same battery
+// addresses, so per-battery overview charts color by address and use line
+// style (solid/dashed) to tell the two halves of a rack apart.
+function stackLineStyle(stack) {
+    if (/top/i.test(stack)) return { dash: [], groupLabel: "Top" };
+    if (/bottom/i.test(stack)) return { dash: [6, 4], groupLabel: "Bottom" };
+    return { dash: [], groupLabel: stack };
+}
+
+function lineStyleKeyHtml(batteries) {
+    const groups = new Map();
+    for (const bat of batteries) {
+        const style = stackLineStyle(bat.stack);
+        groups.set(style.groupLabel, style.dash.length > 0);
+    }
+    return Array.from(groups.entries()).map(([label, dashed]) =>
+        `<span class="key-item"><span class="key-swatch${dashed ? " dashed" : ""}"></span>${label}</span>`
+    ).join("");
+}
+
 function cellSeriesColor(index, total) {
     const hue = Math.round((360 / total) * index);
     return `hsl(${hue}, 65%, 50%)`;
@@ -453,10 +482,24 @@ function historyLabel() {
 
 function isValidTemp(v) { return v !== null && v !== undefined; }
 
-function toDatetimeLocalValue(ms) {
-    const d = new Date(ms);
-    const pad = n => String(n).padStart(2, "0");
-    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+const STALE_MULTIPLIER = 2;
+const OFFLINE_MULTIPLIER = 5;
+const DEFAULT_REPORT_INTERVAL_S = 5;
+
+function batteryStaleness(bat) {
+    const lastTs = Date.parse(bat.latest.timestamp);
+    const ageSec = (Date.now() - lastTs) / 1000;
+    const interval = bat.avgReportIntervalSeconds || DEFAULT_REPORT_INTERVAL_S;
+    let level = "online";
+    if (ageSec >= interval * OFFLINE_MULTIPLIER) level = "offline";
+    else if (ageSec >= interval * STALE_MULTIPLIER) level = "stale";
+    return { level, ageSec };
+}
+
+function formatAge(sec) {
+    if (sec < 60) return `${Math.round(sec)}s ago`;
+    if (sec < 3600) return `${Math.round(sec / 60)}m ago`;
+    return `${Math.round(sec / 3600)}h ago`;
 }
 
 function filterHistoryByRange(history, start, end) {
@@ -473,29 +516,24 @@ function filterHistoryByRange(history, start, end) {
     return filtered;
 }
 
+// The selected timeframe is whatever range the cell voltage history chart is
+// currently zoomed to (via drag-to-zoom), rather than a separately tracked value.
 function getSelectedRange() {
-    const startVal = document.getElementById("rangeStart").value;
-    const endVal = document.getElementById("rangeEnd").value;
+    const chart = cellVoltageHistoryChart;
+    const full = chart._fullRange;
+    const xScale = chart.scales && chart.scales.x;
+    if (!full || !xScale) return { start: null, end: null };
+    const EPS = 1000;
     return {
-        start: startVal ? new Date(startVal).getTime() : null,
-        end: endVal ? new Date(endVal).getTime() : null,
+        start: xScale.min > full.min + EPS ? xScale.min : null,
+        end: xScale.max < full.max - EPS ? xScale.max : null,
     };
 }
 
-function resetRangeInputs(bat) {
-    const ts = bat.history.timestamps;
-    const startInput = document.getElementById("rangeStart");
-    const endInput = document.getElementById("rangeEnd");
-    if (ts.length) {
-        const minVal = toDatetimeLocalValue(Date.parse(ts[0]));
-        const maxVal = toDatetimeLocalValue(Date.parse(ts[ts.length - 1]));
-        startInput.min = minVal; startInput.max = maxVal; startInput.value = minVal;
-        endInput.min = minVal; endInput.max = maxVal; endInput.value = maxVal;
-    } else {
-        startInput.value = ""; endInput.value = "";
-        startInput.removeAttribute("min"); startInput.removeAttribute("max");
-        endInput.removeAttribute("min"); endInput.removeAttribute("max");
-    }
+function updateModalHistoryLabel() {
+    const bat = currentBatteries.find(b => batteryKey(b) === openCellKey);
+    if (!bat) return;
+    document.getElementById("cellHistoryRangeLabel").textContent = rangeLabel(getSelectedRange(), bat.history);
 }
 
 function rangeLabel(range, history) {
@@ -520,8 +558,11 @@ function formatTooltipTitle(items) {
     return new Date(items[0].parsed.x).toLocaleString();
 }
 
+// Drag horizontally on any time-series chart to zoom into that range (drawn as a
+// vertical band); right-click resets back to the full range. Charts can set
+// chart._onZoomChange to react to either action (e.g. to refresh a range label).
 function makeChart(ctx, yLabel, opts) {
-    return new Chart(ctx, {
+    const chart = new Chart(ctx, {
         type: "line",
         data: { datasets: [] },
         options: Object.assign({
@@ -533,10 +574,34 @@ function makeChart(ctx, yLabel, opts) {
                 x: { type: "linear", ticks: { callback: formatTick, maxRotation: 0 } },
                 y: { title: { display: true, text: yLabel } },
             },
-            plugins: { legend: { position: "bottom" }, tooltip: { mode: "index", intersect: false, callbacks: { title: formatTooltipTitle } } },
+            plugins: {
+                legend: { position: "bottom" },
+                tooltip: { mode: "index", intersect: false, callbacks: { title: formatTooltipTitle } },
+                zoom: {
+                    pan: { enabled: false },
+                    zoom: {
+                        drag: { enabled: true, backgroundColor: "rgba(76,139,245,0.2)", borderColor: "#4c8bf5", borderWidth: 1 },
+                        mode: "x",
+                        // The hover tooltip tracks the mouse during the drag and covers the
+                        // selection box, so hide it for the duration of the drag.
+                        onZoomStart: ({ chart }) => { chart.options.plugins.tooltip.enabled = false; },
+                        onZoomComplete: ({ chart }) => {
+                            chart.options.plugins.tooltip.enabled = true;
+                            if (chart._onZoomChange) chart._onZoomChange(chart);
+                        },
+                        onZoomRejected: ({ chart }) => { chart.options.plugins.tooltip.enabled = true; },
+                    },
+                },
+            },
             elements: { point: { radius: 0, hoverRadius: 4 }, line: { tension: 0.15, borderWidth: 1.5 } },
         }, opts),
     });
+    chart.canvas.addEventListener("contextmenu", (e) => {
+        e.preventDefault();
+        chart.resetZoom();
+        if (chart._onZoomChange) chart._onZoomChange(chart);
+    });
+    return chart;
 }
 
 function makeBarChart(ctx, yLabel, opts) {
@@ -579,9 +644,19 @@ const cellVoltageChart = makeCellVoltageChart(document.getElementById("cellVolta
 const cellTempChart = makeBarChart(document.getElementById("cellTempChart"), "°C");
 const overviewPowerChart = makeChart(document.getElementById("overviewPowerChart"), "W");
 const overviewVoltageChart = makeChart(document.getElementById("overviewVoltageChart"), "V");
+for (const chart of [overviewPowerChart, overviewVoltageChart]) {
+    chart.options.plugins.legend.labels = {
+        boxWidth: 12,
+        // Top/bottom datasets for the same address share a label - only show it once.
+        filter: (item, data) => data.datasets.findIndex(ds => ds.label === item.text) === item.datasetIndex,
+    };
+}
+const totalPowerChart = makeChart(document.getElementById("totalPowerChart"), "W");
+totalPowerChart.options.plugins.legend.display = false;
 
 const cellVoltageHistoryChart = makeChart(document.getElementById("cellVoltageHistoryChart"), "V");
 cellVoltageHistoryChart.options.plugins.legend.labels = { boxWidth: 10, font: { size: 10 } };
+cellVoltageHistoryChart._onZoomChange = updateModalHistoryLabel;
 
 document.querySelectorAll(".history-label").forEach(el => { el.textContent = historyLabel(); });
 
@@ -612,7 +687,6 @@ const stackSections = new Map(); // stack -> { cardsEl, countEl, charts: {voltag
 function batteryKey(bat) { return `${bat.stack}|${bat.addr}`; }
 
 function seriesLabel(bat) { return `#${bat.addr}`; }
-function fullSeriesLabel(bat) { return `${bat.stack} #${bat.addr}`; }
 
 function toPoints(timestamps, values) {
     return timestamps.map((t, i) => ({ x: Date.parse(t), y: values[i] }));
@@ -626,6 +700,20 @@ function updateChart(chart, batteries, metric, transform, labelFn) {
         borderColor: colorFor(i),
         backgroundColor: colorFor(i),
     }));
+    chart.update("none");
+}
+
+function updateOverviewChart(chart, batteries, metric, transform) {
+    chart.data.datasets = batteries.map(bat => {
+        const color = colorForAddr(bat.addr);
+        return {
+            label: seriesLabel(bat),
+            data: toPoints(bat.history.timestamps, bat.history[metric]).map(p => ({ x: p.x, y: transform ? transform(p.y) : p.y })),
+            borderColor: color,
+            backgroundColor: color,
+            borderDash: stackLineStyle(bat.stack).dash,
+        };
+    });
     chart.update("none");
 }
 
@@ -644,13 +732,15 @@ function cardHtml(bat) {
     const alarmBadge = d.HasAlarm ? `<span class="alarm-badge">&#9888; ${d.Alarms.length}</span>` : "";
     const cell = cellDeltaStats(d.CellVoltages);
     const faultBadge = cell.isFaulty ? `<span class="fault-badge">FAULTY</span>` : "";
+    const staleness = batteryStaleness(bat);
     const classes = ["card"];
     if (d.HasAlarm) classes.push("has-alarm");
     if (cell.isFaulty) classes.push("has-fault");
+    if (staleness.level !== "online") classes.push(staleness.level);
     return `
     <div class="${classes.join(" ")}" data-key="${batteryKey(bat)}">
         <h2>
-            <span>${bat.addr} ${alarmBadge}${faultBadge}</span>
+            <span><span class="status-dot ${staleness.level}" title="${staleness.level}"></span>${bat.addr} ${alarmBadge}${faultBadge}</span>
             <span class="cell-icon" data-key="${batteryKey(bat)}">&#128202;</span>
         </h2>
         <div class="soc-bar"><div style="width:${socPct}%; background:${socColor(d.StateOfCharge)}"></div></div>
@@ -663,6 +753,7 @@ function cardHtml(bat) {
         <div class="metric-row"><span class="label">Cell delta</span><span${cell.isFaulty ? ' style="color:var(--bad); font-weight:600"' : ""}>${cell.maxDeltaMv.toFixed(0)} mV</span></div>
         <div class="metric-row"><span class="label">Type</span><span>${d.DeviceType || "-"}</span></div>
         <div class="metric-row"><span class="label">Serial</span><span class="serial">${d.SerialNumber || "-"}</span></div>
+        <div class="metric-row"><span class="label">Last update</span><span${staleness.level !== "online" ? ` style="color:var(--${staleness.level === "offline" ? "bad" : "warn"})"` : ""}>${formatAge(staleness.ageSec)}</span></div>
         <div class="hint">Click for cell detail &rarr;</div>
         <div class="export-buttons">
             <button class="export-btn" data-key="${batteryKey(bat)}" data-format="csv">CSV</button>
@@ -795,6 +886,11 @@ function populateCellVoltageHistoryChart(chart, latest, history) {
         borderColor: cellSeriesColor(c, cellCount),
         backgroundColor: cellSeriesColor(c, cellCount),
     }));
+    if (history.timestamps.length) {
+        chart._fullRange = { min: Date.parse(history.timestamps[0]), max: Date.parse(history.timestamps[history.timestamps.length - 1]) };
+    } else {
+        chart._fullRange = null;
+    }
     chart.update("none");
 }
 
@@ -817,10 +913,8 @@ function renderCellModal(bat) {
     populateCellVoltageChart(cellVoltageChart, bat);
     populateTempChart(cellTempChart, bat);
 
-    const range = getSelectedRange();
-    const filteredHistory = filterHistoryByRange(bat.history, range.start, range.end);
-    document.getElementById("cellHistoryRangeLabel").textContent = rangeLabel(range, bat.history);
-    populateCellVoltageHistoryChart(cellVoltageHistoryChart, d, filteredHistory);
+    populateCellVoltageHistoryChart(cellVoltageHistoryChart, d, bat.history);
+    updateModalHistoryLabel();
 
     const statusFlagsEl = document.getElementById("statusFlags");
     const flags = [
@@ -999,7 +1093,7 @@ function openCellModal(key) {
     const bat = currentBatteries.find(b => batteryKey(b) === key);
     if (!bat) return;
     openCellKey = key;
-    resetRangeInputs(bat);
+    cellVoltageHistoryChart.resetZoom();
     renderCellModal(bat);
     document.getElementById("cellModalBackdrop").hidden = false;
 }
@@ -1016,17 +1110,6 @@ document.getElementById("exportCsvBtn").addEventListener("click", () => {
 document.getElementById("exportPdfBtn").addEventListener("click", () => {
     const bat = currentBatteries.find(b => batteryKey(b) === openCellKey);
     if (bat) exportReportPdf(bat, getSelectedRange());
-});
-
-function onRangeChange() {
-    const bat = currentBatteries.find(b => batteryKey(b) === openCellKey);
-    if (bat) renderCellModal(bat);
-}
-document.getElementById("rangeStart").addEventListener("change", onRangeChange);
-document.getElementById("rangeEnd").addEventListener("change", onRangeChange);
-document.getElementById("rangeResetBtn").addEventListener("click", () => {
-    const bat = currentBatteries.find(b => batteryKey(b) === openCellKey);
-    if (bat) { resetRangeInputs(bat); renderCellModal(bat); }
 });
 
 document.getElementById("cellModalClose").addEventListener("click", closeCellModal);
@@ -1052,57 +1135,91 @@ function powerClass(power) {
     return "idle";
 }
 
-function renderOverview(batteries) {
+function renderOverview(batteries, systemHistory, expectedModuleCount) {
     const powerEl = document.getElementById("overviewPower");
     const voltageEl = document.getElementById("overviewVoltage");
     const countEl = document.getElementById("overviewModuleCount");
     const racksEl = document.getElementById("overviewRacks");
+    const totalModules = expectedModuleCount || batteries.length;
 
     if (batteries.length === 0) {
         powerEl.textContent = "-";
         voltageEl.textContent = "-";
-        countEl.textContent = "0";
+        countEl.textContent = `0/${totalModules}`;
         racksEl.innerHTML = '<div class="empty">No battery data received yet.</div>';
         overviewPowerChart.data.datasets = [];
         overviewPowerChart.update("none");
         overviewVoltageChart.data.datasets = [];
         overviewVoltageChart.update("none");
+        totalPowerChart.data.datasets = [];
+        totalPowerChart.update("none");
+        document.getElementById("powerLineKey").innerHTML = "";
+        document.getElementById("voltageLineKey").innerHTML = "";
         return;
     }
 
-    updateChart(overviewPowerChart, batteries, "Power", undefined, fullSeriesLabel);
-    updateChart(overviewVoltageChart, batteries, "Voltage", undefined, fullSeriesLabel);
+    updateOverviewChart(overviewPowerChart, batteries, "Power");
+    updateOverviewChart(overviewVoltageChart, batteries, "Voltage");
+    const lineKeyHtml = lineStyleKeyHtml(batteries);
+    document.getElementById("powerLineKey").innerHTML = lineKeyHtml;
+    document.getElementById("voltageLineKey").innerHTML = lineKeyHtml;
 
-    const totalPower = batteries.reduce((sum, b) => sum + b.latest.Power, 0);
+    if (systemHistory && systemHistory.timestamps.length) {
+        totalPowerChart.data.datasets = [{
+            label: "Total power",
+            data: toPoints(systemHistory.timestamps, systemHistory.TotalPower),
+            borderColor: colorFor(0),
+            backgroundColor: colorFor(0),
+        }];
+    } else {
+        totalPowerChart.data.datasets = [];
+    }
+    totalPowerChart.update("none");
+
+    // A battery that has stopped reporting shouldn't keep contributing its last
+    // (now stale) power reading to the live totals - treat it as 0W instead.
+    const enriched = batteries.map(bat => {
+        const staleness = batteryStaleness(bat);
+        const effectivePower = staleness.level === "offline" ? 0 : bat.latest.Power;
+        return { bat, staleness, effectivePower };
+    });
+
+    const totalPower = enriched.reduce((sum, e) => sum + e.effectivePower, 0);
     const avgVoltage = batteries.reduce((sum, b) => sum + b.latest.Voltage, 0) / batteries.length;
-    const maxAbsPower = Math.max(1, ...batteries.map(b => Math.abs(b.latest.Power)));
+    const maxAbsPower = Math.max(1, ...enriched.map(e => Math.abs(e.effectivePower)));
+    const onlineCount = enriched.filter(e => e.staleness.level === "online").length;
 
     powerEl.textContent = `${totalPower >= 0 ? "+" : ""}${totalPower.toFixed(0)} W`;
     voltageEl.textContent = `${avgVoltage.toFixed(2)} V`;
-    countEl.textContent = `${batteries.length}`;
+    countEl.textContent = `${onlineCount}/${totalModules}`;
 
     const stackOrder = [];
     const groups = new Map();
-    for (const bat of batteries) {
-        if (!groups.has(bat.stack)) {
-            groups.set(bat.stack, []);
-            stackOrder.push(bat.stack);
+    for (const e of enriched) {
+        if (!groups.has(e.bat.stack)) {
+            groups.set(e.bat.stack, []);
+            stackOrder.push(e.bat.stack);
         }
-        groups.get(bat.stack).push(bat);
+        groups.get(e.bat.stack).push(e);
     }
 
     racksEl.innerHTML = stackOrder.map(stack => {
-        const bats = groups.get(stack);
-        const stackPower = bats.reduce((sum, b) => sum + b.latest.Power, 0);
-        const stackVoltage = bats.reduce((sum, b) => sum + b.latest.Voltage, 0) / bats.length;
+        const entries = groups.get(stack);
+        const stackPower = entries.reduce((sum, e) => sum + e.effectivePower, 0);
+        const stackVoltage = entries.reduce((sum, e) => sum + e.bat.latest.Voltage, 0) / entries.length;
 
-        const tiles = bats.map(bat => {
-            const p = bat.latest.Power;
-            const opacity = Math.max(0.35, Math.min(1, Math.abs(p) / maxAbsPower));
+        const tiles = entries.map(({ bat, staleness, effectivePower }) => {
+            const isOffline = staleness.level === "offline";
+            const cls = isOffline ? "offline" : powerClass(effectivePower);
+            const opacity = isOffline ? 1 : Math.max(0.35, Math.min(1, Math.abs(effectivePower) / maxAbsPower));
+            const powerText = isOffline ? "OFFLINE" : `${effectivePower >= 0 ? "+" : ""}${effectivePower.toFixed(0)} W`;
+            const titleText = isOffline
+                ? `Battery ${bat.addr}: offline (last seen ${formatAge(staleness.ageSec)})`
+                : `Battery ${bat.addr}: ${effectivePower.toFixed(0)} W`;
             return `
-            <div class="rack-tile ${powerClass(p)}" style="opacity:${opacity.toFixed(2)}" data-key="${batteryKey(bat)}" title="Battery ${bat.addr}: ${p.toFixed(0)} W">
+            <div class="rack-tile ${cls}" style="opacity:${opacity.toFixed(2)}" data-key="${batteryKey(bat)}" title="${titleText}">
                 <span class="rack-tile-addr">${bat.addr}</span>
-                <span class="rack-tile-power">${p >= 0 ? "+" : ""}${p.toFixed(0)} W</span>
+                <span class="rack-tile-power">${powerText}</span>
             </div>`;
         }).join("");
 
@@ -1193,7 +1310,7 @@ async function refresh() {
             : "";
 
         currentBatteries = data.batteries;
-        renderOverview(data.batteries);
+        renderOverview(data.batteries, data.systemHistory, data.expectedModuleCount);
         renderStacks(data.batteries);
 
         if (openCellKey) {
@@ -1205,6 +1322,26 @@ async function refresh() {
         console.error(e);
     }
 }
+
+document.getElementById("clearCacheBtn").addEventListener("click", async () => {
+    const password = prompt("Enter password to clear the cached history:");
+    if (password === null) return;
+    try {
+        const res = await fetch("/api/clear_cache", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ password }),
+        });
+        if (!res.ok) {
+            alert("Failed to clear cache: incorrect password.");
+            return;
+        }
+        refresh();
+    } catch (e) {
+        alert("Failed to clear cache.");
+        console.error(e);
+    }
+});
 
 refresh();
 setInterval(refresh, REFRESH_MS);

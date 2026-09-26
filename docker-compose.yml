@@ -35,6 +35,7 @@ services:
       MQTT_PORT: "1883"
       DATA_DIR: /app/data
     volumes:
+      - ./config.ini:/app/config.ini:ro
       - ./data:/app/data
     restart: unless-stopped
 
@@ -51,6 +52,10 @@ services:
       MAX_CELL_DELTA_MV: "10"
       HISTORY_HOURS: "24"
       UI_PORT: "9080"
+      CACHE_DIR: /app/cache
+    volumes:
+      - ./config.ini:/app/config.ini:ro
+      - ./ui_cache:/app/cache
     ports:
       - "9080:9080"
     restart: unless-stopped

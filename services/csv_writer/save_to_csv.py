@@ -23,10 +23,11 @@ batCSVList = {}
 avgObj = {}
 
 
-def get_key_state(addr: int):
-    key = str(addr)
+def get_key_state(stack: str, addr: int):
+    key = f"{stack}_{addr}"
     if key not in batCSVList:
-        writer = csvWriter(str(DATA_DIR), f"bat_{addr}", delimiter=";", flushLines=1)
+        safe_stack = "".join(c if c.isalnum() else "_" for c in stack)
+        writer = csvWriter(str(DATA_DIR), f"bat_{safe_stack}_{addr}", delimiter=";", flushLines=1)
         writer.setHeader(["Date", "Count"] + header())
         batCSVList[key] = writer
         avgObj[key] = avg("minute")
@@ -40,8 +41,9 @@ def on_connect(client, userdata, flags, reason_code, properties):
 
 def on_message(client, userdata, msg):
     payload = json.loads(msg.payload.decode())
+    stack = payload["stack"]
     addr = payload["addr"]
-    key, writer, avgHandle = get_key_state(addr)
+    key, writer, avgHandle = get_key_state(stack, addr)
     row = to_row(payload)
 
     if avgHandle.checkTime(datetime.now()):

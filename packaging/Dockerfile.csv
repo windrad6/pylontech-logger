@@ -5,7 +5,7 @@ WORKDIR /app
 COPY pyproject.toml ./
 RUN pip install --no-cache-dir ".[mqtt]"
 
-COPY csvWiter.py avg.py mqtt_common.py pylontech_data.py ./
+COPY csvWiter.py avg.py mqtt_common.py pylontech_data.py config.ini ./
 COPY services/csv_writer ./services/csv_writer
 
 ENV PYTHONUNBUFFERED=1

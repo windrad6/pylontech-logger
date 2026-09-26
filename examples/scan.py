@@ -18,6 +18,8 @@ tmpDir = tempfile.mkdtemp(prefix="pylontech-")
 
 batList = {}
 for section in config.sections():
+    if section == "mqtt":
+        continue
     batList[section] = {
         "dev": str(pathlib.Path(tmpDir) / section),
         "ip": config[section]["ip"],
