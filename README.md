@@ -39,7 +39,7 @@ To remove the virtual environment run
 
 To enable the virtual environment (Linux) run
 
-`source vEnv/bin/activate`
+`source .venv/bin/activate`
 
 ## License
 
