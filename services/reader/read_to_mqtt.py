@@ -22,7 +22,7 @@ coloredlogs.install(level="DEBUG")
 logger = logging.getLogger(__name__)
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent.parent
-CONFIG_PATH = pathlib.Path(os.environ.get("CONFIG_PATH", REPO_ROOT / "examples" / "config.ini"))
+CONFIG_PATH = pathlib.Path(os.environ.get("CONFIG_PATH", REPO_ROOT / "config.ini"))
 
 config = configparser.ConfigParser()
 config.read(CONFIG_PATH)
@@ -31,6 +31,8 @@ tmpDir = tempfile.mkdtemp(prefix="pylontech-")
 
 batList = {}
 for section in config.sections():
+    if section == "general":
+        continue
     batList[section] = {
         "addr": [int(a.strip()) for a in config[section]["addr"].split(",")],
         "dev": str(pathlib.Path(tmpDir) / section),

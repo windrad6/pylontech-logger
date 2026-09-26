@@ -11,9 +11,8 @@ WORKDIR /app
 COPY pyproject.toml ./
 RUN pip install --no-cache-dir ".[mqtt]"
 
-COPY mqtt_common.py pylontech_data.py pylontech_alarm.py ./
+COPY mqtt_common.py pylontech_data.py pylontech_alarm.py config.ini ./
 COPY services/reader ./services/reader
-COPY examples/config.ini ./examples/config.ini
 
 ENV PYTHONUNBUFFERED=1
 

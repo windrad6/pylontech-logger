@@ -12,12 +12,14 @@ SCAN_START = 0
 SCAN_END = 30
 
 config = configparser.ConfigParser()
-config.read(pathlib.Path(__file__).parent / "config.ini")
+config.read(pathlib.Path(__file__).parent.parent / "config.ini")
 
 tmpDir = tempfile.mkdtemp(prefix="pylontech-")
 
 batList = {}
 for section in config.sections():
+    if section == "general":
+        continue
     batList[section] = {
         "dev": str(pathlib.Path(tmpDir) / section),
         "ip": config[section]["ip"],

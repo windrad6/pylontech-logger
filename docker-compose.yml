@@ -19,7 +19,7 @@ services:
       MQTT_HOST: mosquitto
       MQTT_PORT: "1883"
     volumes:
-      - ./examples/config.ini:/app/examples/config.ini:ro
+      - ./config.ini:/app/config.ini:ro
     restart: unless-stopped
 
   csv-writer:
@@ -33,6 +33,7 @@ services:
       MQTT_HOST: mosquitto
       MQTT_PORT: "1883"
     volumes:
+      - ./config.ini:/app/config.ini:ro
       - ./data:/app/data
     restart: unless-stopped
 

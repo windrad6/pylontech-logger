@@ -1,3 +1,4 @@
+import configparser
 import json
 import logging
 import os
@@ -17,7 +18,14 @@ coloredlogs.install(level="DEBUG")
 logger = logging.getLogger(__name__)
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent.parent
-DATA_DIR = pathlib.Path(os.environ.get("DATA_DIR", REPO_ROOT / "data"))
+CONFIG_PATH = pathlib.Path(os.environ.get("CONFIG_PATH", REPO_ROOT / "config.ini"))
+
+config = configparser.ConfigParser()
+config.read(CONFIG_PATH)
+
+DATA_DIR = pathlib.Path(config.get("general", "data_dir", fallback="data"))
+if not DATA_DIR.is_absolute():
+    DATA_DIR = REPO_ROOT / DATA_DIR
 
 batCSVList = {}
 avgObj = {}
