@@ -98,12 +98,14 @@
     .rack { margin-bottom: 26px; }
     .rack-header {
         display: flex;
-        justify-content: space-between;
+        justify-content: flex-start;
         align-items: baseline;
+        gap: 14px;
         margin-bottom: 8px;
     }
     .rack-name { font-weight: 600; }
     .rack-summary { color: var(--muted); font-size: 0.85rem; }
+    .rack-soc { font-size: 0.95rem; font-weight: 700; }
     .rack-row {
         display: flex;
         gap: 8px;
@@ -380,11 +382,19 @@
             <span class="stat-tile-label">Modules online</span>
             <span class="stat-tile-value" id="overviewModuleCount">-</span>
         </div>
+        <div class="stat-tile">
+            <span class="stat-tile-label">Overall SOC</span>
+            <span class="stat-tile-value" id="overviewSoc">-</span>
+        </div>
     </div>
     <div class="charts">
         <div class="chart-box">
             <h3>Total power (<span class="history-label"></span>)</h3>
             <canvas id="totalPowerChart"></canvas>
+        </div>
+        <div class="chart-box">
+            <h3>Overall SOC (<span class="history-label"></span>)</h3>
+            <canvas id="totalSocChart"></canvas>
         </div>
         <div class="chart-box">
             <h3>Power per battery (<span class="history-label"></span>)</h3>
@@ -395,6 +405,11 @@
             <h3>Voltage per battery (<span class="history-label"></span>)</h3>
             <div class="line-style-key" id="voltageLineKey"></div>
             <canvas id="overviewVoltageChart"></canvas>
+        </div>
+        <div class="chart-box">
+            <h3>SOC per battery (<span class="history-label"></span>)</h3>
+            <div class="line-style-key" id="socLineKey"></div>
+            <canvas id="overviewSocChart"></canvas>
         </div>
     </div>
     <div id="overviewRacks"></div>
@@ -674,7 +689,8 @@ const cellVoltageChart = makeCellVoltageChart(document.getElementById("cellVolta
 const cellTempChart = makeBarChart(document.getElementById("cellTempChart"), "°C");
 const overviewPowerChart = makeChart(document.getElementById("overviewPowerChart"), "W");
 const overviewVoltageChart = makeChart(document.getElementById("overviewVoltageChart"), "V");
-for (const chart of [overviewPowerChart, overviewVoltageChart]) {
+const overviewSocChart = makeChart(document.getElementById("overviewSocChart"), "%");
+for (const chart of [overviewPowerChart, overviewVoltageChart, overviewSocChart]) {
     chart.options.plugins.legend.labels = {
         boxWidth: 12,
         // Top/bottom datasets for the same address share a label - only show it once.
@@ -683,6 +699,8 @@ for (const chart of [overviewPowerChart, overviewVoltageChart]) {
 }
 const totalPowerChart = makeChart(document.getElementById("totalPowerChart"), "W");
 totalPowerChart.options.plugins.legend.display = false;
+const totalSocChart = makeChart(document.getElementById("totalSocChart"), "%");
+totalSocChart.options.plugins.legend.display = false;
 
 const cellVoltageHistoryChart = makeChart(document.getElementById("cellVoltageHistoryChart"), "V");
 cellVoltageHistoryChart.options.plugins.legend.labels = { boxWidth: 10, font: { size: 10 } };
@@ -802,6 +820,7 @@ function cardHtml(bat) {
         </h2>
         <div class="soc-bar"><div style="width:${socPct}%; background:${socColor(d.StateOfCharge)}"></div></div>
         <div class="metric-row"><span class="label">State of charge</span><span>${socPct}%</span></div>
+        <div class="metric-row"><span class="label">Capacity</span><span>${d.RemainingCapacity.toFixed(1)} / ${d.TotalCapacity.toFixed(1)} Ah</span></div>
         <div class="metric-row"><span class="label">Voltage</span><span>${d.Voltage.toFixed(2)} V</span></div>
         <div class="metric-row"><span class="label">Current</span><span>${d.Current.toFixed(2)} A</span></div>
         <div class="metric-row"><span class="label">Power</span><span>${d.Power.toFixed(0)} W</span></div>
@@ -1023,6 +1042,8 @@ function exportReport(bat, range) {
     lines.push(`Current (A),${d.Current}`);
     lines.push(`Power (W),${d.Power}`);
     lines.push(`State of charge,${d.StateOfCharge}`);
+    lines.push(`Remaining capacity (Ah),${d.RemainingCapacity}`);
+    lines.push(`Total capacity (Ah),${d.TotalCapacity}`);
     lines.push(`Cycle count,${d.CycleNumber}`);
     lines.push(`BMS temperature (C),${isValidTemp(d.AverageBMSTemperature) ? d.AverageBMSTemperature : "N/A"}`);
     lines.push(`Min cell voltage (V),${cell.minV}`);
@@ -1196,6 +1217,7 @@ function renderOverview(batteries, systemHistory, expectedModuleCount) {
     const powerEl = document.getElementById("overviewPower");
     const voltageEl = document.getElementById("overviewVoltage");
     const countEl = document.getElementById("overviewModuleCount");
+    const socEl = document.getElementById("overviewSoc");
     const racksEl = document.getElementById("overviewRacks");
     const totalModules = expectedModuleCount || batteries.length;
 
@@ -1203,23 +1225,31 @@ function renderOverview(batteries, systemHistory, expectedModuleCount) {
         powerEl.textContent = "-";
         voltageEl.textContent = "-";
         countEl.textContent = `0/${totalModules}`;
+        socEl.textContent = "-";
         racksEl.innerHTML = '<div class="empty">No battery data received yet.</div>';
         overviewPowerChart.data.datasets = [];
         overviewPowerChart.update("none");
         overviewVoltageChart.data.datasets = [];
         overviewVoltageChart.update("none");
+        overviewSocChart.data.datasets = [];
+        overviewSocChart.update("none");
         totalPowerChart.data.datasets = [];
         totalPowerChart.update("none");
+        totalSocChart.data.datasets = [];
+        totalSocChart.update("none");
         document.getElementById("powerLineKey").innerHTML = "";
         document.getElementById("voltageLineKey").innerHTML = "";
+        document.getElementById("socLineKey").innerHTML = "";
         return;
     }
 
     updateOverviewChart(overviewPowerChart, batteries, "Power");
     updateOverviewChart(overviewVoltageChart, batteries, "Voltage");
+    updateOverviewChart(overviewSocChart, batteries, "StateOfCharge", v => v * 100);
     const lineKeyHtml = lineStyleKeyHtml(batteries);
     document.getElementById("powerLineKey").innerHTML = lineKeyHtml;
     document.getElementById("voltageLineKey").innerHTML = lineKeyHtml;
+    document.getElementById("socLineKey").innerHTML = lineKeyHtml;
 
     if (systemHistory && systemHistory.timestamps.length) {
         totalPowerChart.data.datasets = [{
@@ -1228,10 +1258,18 @@ function renderOverview(batteries, systemHistory, expectedModuleCount) {
             borderColor: colorFor(0),
             backgroundColor: colorFor(0),
         }];
+        totalSocChart.data.datasets = [{
+            label: "Overall SOC",
+            data: toPoints(systemHistory.timestamps, systemHistory.AvgStateOfCharge).map(p => ({ x: p.x, y: p.y * 100 })),
+            borderColor: colorFor(0),
+            backgroundColor: colorFor(0),
+        }];
     } else {
         totalPowerChart.data.datasets = [];
+        totalSocChart.data.datasets = [];
     }
     totalPowerChart.update("none");
+    totalSocChart.update("none");
 
     // A battery that has stopped reporting shouldn't keep contributing its last
     // (now stale) power reading to the live totals - treat it as 0W instead.
@@ -1243,12 +1281,14 @@ function renderOverview(batteries, systemHistory, expectedModuleCount) {
 
     const totalPower = enriched.reduce((sum, e) => sum + e.effectivePower, 0);
     const avgVoltage = batteries.reduce((sum, b) => sum + b.latest.Voltage, 0) / batteries.length;
+    const avgSoc = batteries.reduce((sum, b) => sum + b.latest.StateOfCharge, 0) / batteries.length;
     const maxAbsPower = Math.max(1, ...enriched.map(e => Math.abs(e.effectivePower)));
     const onlineCount = enriched.filter(e => e.staleness.level === "online").length;
 
     powerEl.textContent = `${totalPower >= 0 ? "+" : ""}${totalPower.toFixed(0)} W`;
     voltageEl.textContent = `${avgVoltage.toFixed(2)} V`;
     countEl.textContent = `${onlineCount}/${totalModules}`;
+    socEl.textContent = `${(avgSoc * 100).toFixed(1)}%`;
 
     const stackOrder = [];
     const groups = new Map();
@@ -1264,6 +1304,7 @@ function renderOverview(batteries, systemHistory, expectedModuleCount) {
         const entries = groups.get(stack);
         const stackPower = entries.reduce((sum, e) => sum + e.effectivePower, 0);
         const stackVoltage = entries.reduce((sum, e) => sum + e.bat.latest.Voltage, 0) / entries.length;
+        const stackSoc = entries.reduce((sum, e) => sum + e.bat.latest.StateOfCharge, 0) / entries.length;
 
         const tiles = entries.map(({ bat, staleness, effectivePower }) => {
             const isOffline = staleness.level === "offline";
@@ -1285,6 +1326,7 @@ function renderOverview(batteries, systemHistory, expectedModuleCount) {
             <div class="rack-header">
                 <span class="rack-name">${stack}</span>
                 <span class="rack-summary">${stackPower >= 0 ? "+" : ""}${stackPower.toFixed(0)} W · ${stackVoltage.toFixed(2)} V avg</span>
+                <span class="rack-soc" style="color:${socColor(stackSoc)}">${(stackSoc * 100).toFixed(1)}% SOC</span>
             </div>
             <div class="rack-row">${tiles}</div>
         </div>`;

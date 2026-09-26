@@ -167,14 +167,15 @@ def build_system_history(max_points=360):
             ts_list = [r[0] for r in rows]
             power_list = [r[1]["Power"] for r in rows]
             voltage_list = [r[1]["Voltage"] for r in rows]
-            series[key] = (ts_list, power_list, voltage_list)
+            soc_list = [r[1]["StateOfCharge"] for r in rows]
+            series[key] = (ts_list, power_list, voltage_list, soc_list)
             if start is None or ts_list[0] < start:
                 start = ts_list[0]
             if end is None or ts_list[-1] > end:
                 end = ts_list[-1]
 
     if not series or start == end:
-        return {"timestamps": [], "TotalPower": [], "AvgVoltage": []}
+        return {"timestamps": [], "TotalPower": [], "AvgVoltage": [], "AvgStateOfCharge": []}
 
     span = (end - start).total_seconds()
     steps = min(max_points, 200)
@@ -183,22 +184,31 @@ def build_system_history(max_points=360):
     timestamps = []
     total_power = []
     avg_voltage = []
+    avg_soc = []
     for i in range(steps + 1):
         t = start + timedelta(seconds=step_seconds * i)
         powers = []
         voltages = []
-        for ts_list, power_list, voltage_list in series.values():
+        socs = []
+        for ts_list, power_list, voltage_list, soc_list in series.values():
             idx = bisect.bisect_right(ts_list, t) - 1
             if idx >= 0:
                 powers.append(power_list[idx])
                 voltages.append(voltage_list[idx])
+                socs.append(soc_list[idx])
         if not powers:
             continue
         timestamps.append(t.isoformat())
         total_power.append(sum(powers))
         avg_voltage.append(sum(voltages) / len(voltages))
+        avg_soc.append(sum(socs) / len(socs))
 
-    return {"timestamps": timestamps, "TotalPower": total_power, "AvgVoltage": avg_voltage}
+    return {
+        "timestamps": timestamps,
+        "TotalPower": total_power,
+        "AvgVoltage": avg_voltage,
+        "AvgStateOfCharge": avg_soc,
+    }
 
 
 @app.route("/")
