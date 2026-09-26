@@ -112,6 +112,15 @@
         pointer-events: none;
     }
     .hover-tooltip-title { font-size: 0.78rem; font-weight: 600; margin-bottom: 4px; }
+    .cell-icon {
+        cursor: pointer;
+        font-size: 0.95rem;
+        opacity: 0.6;
+        line-height: 1;
+    }
+    .cell-icon:hover { opacity: 1; }
+    #cellVoltageHoverBarChart, #cellVoltageHoverHistoryChart { max-height: none !important; }
+    .hover-chart-label { font-size: 0.7rem; color: var(--muted); margin: 6px 0 2px 0; }
     .stack-section { margin-bottom: 32px; }
     .stack-heading {
         font-size: 1rem;
@@ -353,6 +362,16 @@
     <canvas id="hoverPowerChart" width="220" height="100"></canvas>
 </div>
 
+<div class="hover-tooltip" id="cellVoltageHoverTooltip" hidden>
+    <div class="hover-tooltip-title" id="cellHoverTooltipTitle"></div>
+    <div style="width: 600px;">
+        <div class="hover-chart-label">Snapshot</div>
+        <div style="height: 180px;"><canvas id="cellVoltageHoverBarChart"></canvas></div>
+        <div class="hover-chart-label">History</div>
+        <div style="height: 180px;"><canvas id="cellVoltageHoverHistoryChart"></canvas></div>
+    </div>
+</div>
+
 <div class="tab-panel" id="tab-stacks" hidden>
     <div class="empty" id="emptyState">No battery data received yet.</div>
     <div id="stackSections" hidden></div>
@@ -496,6 +515,11 @@ function formatTick(value) {
     return new Date(value).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
 
+function formatTooltipTitle(items) {
+    if (!items.length) return "";
+    return new Date(items[0].parsed.x).toLocaleString();
+}
+
 function makeChart(ctx, yLabel, opts) {
     return new Chart(ctx, {
         type: "line",
@@ -509,7 +533,7 @@ function makeChart(ctx, yLabel, opts) {
                 x: { type: "linear", ticks: { callback: formatTick, maxRotation: 0 } },
                 y: { title: { display: true, text: yLabel } },
             },
-            plugins: { legend: { position: "bottom" }, tooltip: { mode: "index", intersect: false } },
+            plugins: { legend: { position: "bottom" }, tooltip: { mode: "index", intersect: false, callbacks: { title: formatTooltipTitle } } },
             elements: { point: { radius: 0, hoverRadius: 4 }, line: { tension: 0.15, borderWidth: 1.5 } },
         }, opts),
     });
@@ -563,6 +587,12 @@ document.querySelectorAll(".history-label").forEach(el => { el.textContent = his
 
 const hoverChart = makeChart(document.getElementById("hoverPowerChart"), "W");
 hoverChart.options.plugins.legend.display = false;
+
+const cellVoltageHoverBarChart = makeCellVoltageChart(document.getElementById("cellVoltageHoverBarChart"));
+cellVoltageHoverBarChart.options.plugins.legend.display = false;
+
+const cellVoltageHoverHistoryChart = makeChart(document.getElementById("cellVoltageHoverHistoryChart"), "V", { maintainAspectRatio: false });
+cellVoltageHoverHistoryChart.options.plugins.legend.display = false;
 
 // Off-screen charts used only to render PNG snapshots for the PDF export, kept in sync
 // with whichever battery is being exported regardless of which modal is currently open.
@@ -619,7 +649,10 @@ function cardHtml(bat) {
     if (cell.isFaulty) classes.push("has-fault");
     return `
     <div class="${classes.join(" ")}" data-key="${batteryKey(bat)}">
-        <h2>${bat.addr} ${alarmBadge}${faultBadge}</h2>
+        <h2>
+            <span>${bat.addr} ${alarmBadge}${faultBadge}</span>
+            <span class="cell-icon" data-key="${batteryKey(bat)}">&#128202;</span>
+        </h2>
         <div class="soc-bar"><div style="width:${socPct}%; background:${socColor(d.StateOfCharge)}"></div></div>
         <div class="metric-row"><span class="label">State of charge</span><span>${socPct}%</span></div>
         <div class="metric-row"><span class="label">Voltage</span><span>${d.Voltage.toFixed(2)} V</span></div>
@@ -706,6 +739,10 @@ function renderStacks(batteries) {
                 if (!bat) return;
                 if (btn.dataset.format === "pdf") exportReportPdf(bat); else exportReport(bat);
             });
+        });
+        entry.cardsEl.querySelectorAll(".cell-icon").forEach(el => {
+            el.addEventListener("mouseenter", (e) => { e.stopPropagation(); showCellVoltageHover(el); });
+            el.addEventListener("mouseleave", (e) => { e.stopPropagation(); hideCellVoltageHover(); });
         });
 
         updateChart(entry.charts.voltage, bats, "Voltage");
@@ -1113,6 +1150,32 @@ function showHoverChart(tileEl) {
 
 function hideHoverChart() {
     document.getElementById("powerHoverTooltip").hidden = true;
+}
+
+function positionTooltip(tooltip, rect) {
+    tooltip.hidden = false;
+    const tooltipWidth = tooltip.offsetWidth;
+    let left = rect.left;
+    if (left + tooltipWidth > window.innerWidth - 8) {
+        left = window.innerWidth - tooltipWidth - 8;
+    }
+    tooltip.style.left = `${Math.max(8, left)}px`;
+    tooltip.style.top = `${rect.bottom + 8}px`;
+}
+
+function showCellVoltageHover(iconEl) {
+    const bat = currentBatteries.find(b => batteryKey(b) === iconEl.dataset.key);
+    if (!bat) return;
+
+    document.getElementById("cellHoverTooltipTitle").textContent = `Battery ${bat.addr} cell voltages`;
+    populateCellVoltageChart(cellVoltageHoverBarChart, bat);
+    populateCellVoltageHistoryChart(cellVoltageHoverHistoryChart, bat.latest, bat.history);
+
+    positionTooltip(document.getElementById("cellVoltageHoverTooltip"), iconEl.getBoundingClientRect());
+}
+
+function hideCellVoltageHover() {
+    document.getElementById("cellVoltageHoverTooltip").hidden = true;
 }
 
 async function refresh() {
